@@ -38,20 +38,6 @@ st.sidebar.header("⚙️ 参数与密钥")
 default_av_key = get_api_key("ALPHA_VANTAGE_KEY")
 default_llm_key = get_api_key("GOOGLE_API_KEY")
 
-av_api_key = st.sidebar.text_input(
-    "Alpha Vantage Key", 
-    value=default_av_key, 
-    type="password",
-    help="优先读取 Secrets 配置，也可在此手动覆盖"
-)
-
-llm_api_key = st.sidebar.text_input(
-    "Google Gemini Key", 
-    value=default_llm_key, 
-    type="password",
-    help="优先读取 Secrets 配置，也可在此手动覆盖"
-)
-
 # 检查状态
 if not av_api_key or not llm_api_key:
     st.sidebar.warning("⚠️ 未检测到完整 Key，请配置 .streamlit/secrets.toml 或手动输入。")
