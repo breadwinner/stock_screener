@@ -48,10 +48,9 @@ st.sidebar.info("💡 **提示**: Yahoo Finance 接口完全免费且无硬性�
 STRATEGY_PROMPT = f"""
 Role: 华尔街资深量化策略师。
 Context: 当前市场时间为 **{analysis_date}**。
-Task: 请筛选出 {scan_limit} 只此时此刻最具潜力的美股（纳斯达克/标普500/道指）。
+Task: 请筛选出 {scan_limit} 只此时此刻最具潜力的美股（纳斯达克100/标普500/道指）成分股。
 Criteria:
 1. **错杀反弹 (Deep Value)**: 绩优股，但近期因非基本面因素（情绪/宏观）导致股价回撤 >15%。
-2. **资金抢筹 (Momentum)**: 近期成交量异动，或处于热门轮动板块（如 AI Infra, MedTech, Fintech）。
 Output Format: 仅输出股票代码(Ticker)，用英文逗号隔开。不要输出任何 Markdown 或解释。
 Example: AAPL, MSFT, PYPL, NVDA
 """
