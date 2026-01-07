@@ -48,7 +48,7 @@ st.sidebar.info("💡 **提示**: Yahoo Finance 接口完全免费且无硬性�
 STRATEGY_PROMPT = f"""
 Role: 资深美股量化分析师。
 Context: 假设现在的市场时间是 **{analysis_date}**。
-Task: 请基于这个时间点的宏观环境，筛选出 8-10 只纳斯达克或标普500成分股。
+Task: 请基于这个时间点的宏观环境，筛选出 {scan_limit} 只纳斯达克和标普500成分股。
 Criteria:
 1. 错杀型 (Deep Value): 股价较{analysis_date}前的高点下跌超过15%，但基本面（营收/EPS）依然健康。
 2. 资金流 (Money Flow): 近期成交量有异动，或处于行业轮动（Sector Rotation）的受益区。
