@@ -46,12 +46,13 @@ st.sidebar.info("💡 **提示**: Yahoo Finance 接口完全免费且无硬性�
 
 # --- 4. AI 策略定义 ---
 STRATEGY_PROMPT = f"""
-Role: 华尔街资深量化策略师。
-Context: 当前市场时间为 **{analysis_date}**。
-Task: 请筛选出 {scan_limit} 只此时此刻最具潜力的美股（纳斯达克100/标普500/道指）成分股。
+Role: 资深美股量化分析师。
+Context: 假设现在的市场时间是 **{analysis_date}**。
+Task: 筛选 {scan_limit} 只纳斯达克或标普500成分股。
 Criteria:
-1. **错杀反弹 (Deep Value)**: 股价较{analysis_date}前高点跌幅>15%，基本面健康。
-Output Format: 仅输出股票代码(Ticker)，用英文逗号隔开。不要输出任何 Markdown 或解释。
+1. 错杀型: 股价较{analysis_date}前高点跌幅>15%，基本面健康。
+2. 资金流: 近期RSI低位或成交量异动。
+Output Format: 仅输出股票代码，用英文逗号隔开 (e.g. AAPL, MSFT)。
 """
 
 # --- 5. 核心功能函数 ---
