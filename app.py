@@ -31,18 +31,35 @@ def get_api_key(key_name):
     else:
         return ""
 
-# --- 2. 侧边栏配置 ---
+# --- 2. 侧边栏配置 (安全版) ---
 st.sidebar.header("⚙️ 参数与密钥")
 
-# 2.1 获取并自动填充 Key
-default_av_key = get_api_key("ALPHA_VANTAGE_KEY")
-default_llm_key = get_api_key("GOOGLE_API_KEY")
+# --- 安全加载逻辑 ---
+# 定义一个辅助函数来处理 Key 的显示逻辑
+def load_key_securely(key_name, display_name):
+    # 1. 尝试从 Secrets 或 Env 获取
+    env_key = get_api_key(key_name)
+    
+    if env_key:
+        # 如果找到了，显示绿色的成功状态，不显示具体 Key，也不渲染输入框
+        st.sidebar.success(f"✅ {display_name} 已配置")
+        return env_key
+    else:
+        # 如果没找到，显示空的输入框让用户手动填
+        return st.sidebar.text_input(
+            f"{display_name}", 
+            type="password",
+            help="未检测到配置文件，请在此手动输入"
+        )
 
-# 检查状态
+# 调用函数加载 Key
+av_api_key = load_key_securely("ALPHA_VANTAGE_KEY", "Alpha Vantage Key")
+llm_api_key = load_key_securely("GOOGLE_API_KEY", "Google Gemini Key")
+
+# 检查最终状态
 if not av_api_key or not llm_api_key:
-    st.sidebar.warning("⚠️ 未检测到完整 Key，请配置 .streamlit/secrets.toml 或手动输入。")
-else:
-    st.sidebar.success("✅ API Key 已就绪")
+    st.sidebar.warning("⚠️ 缺少必要的 API Key，程序无法运行。")
+    st.stop() # 强制停止后续代码运行，防止报错
 
 st.sidebar.markdown("---")
 
