@@ -103,29 +103,48 @@ def get_ai_picks(api_key, prompt):
         st.error(f"AI 调用错误: {str(e)}")
         return []
 
+# --- 替换原有的 verify_stock_data 函数 ---
 def verify_stock_data(symbol, api_key):
-    """调用 Alpha Vantage 验证数据"""
     try:
         fd = FundamentalData(key=api_key, output_format='pandas')
         ts = TimeSeries(key=api_key, output_format='pandas')
         
-        # 基本面
+        # 调试信息：告诉用户正在查哪个
+        # st.write(f"正在尝试获取 {symbol} 的数据...") 
+        
+        # 1. 获取基本面 (OVERVIEW)
         overview, _ = fd.get_company_overview(symbol=symbol)
-        if overview.empty: return None
         
-        pe = float(overview['ForwardPE'].iloc[0]) if 'ForwardPE' in overview.columns and overview['ForwardPE'].iloc[0] != 'None' else 0
-        sector = overview['Sector'].iloc[0]
+        # 检查点 1: API 是否返回了空数据？
+        if overview.empty:
+            st.warning(f"⚠️ {symbol}: API 返回了空的基本面数据 (Overview is empty)")
+            return None
+            
+        # 检查点 2: 打印一下列名，看看有没有 ForwardPE
+        # st.write(overview.columns) 
+
+        # 安全获取数据 (使用 .get 避免报错)
+        # 注意: Alpha Vantage 有时返回 'None' 字符串，有时返回 float
+        pe_raw = overview['ForwardPE'].iloc[0]
+        pe = float(pe_raw) if pe_raw and pe_raw != 'None' else 0.0
         
-        # 技术面 (取最近60天)
+        sector = overview['Sector'].iloc[0] if 'Sector' in overview.columns else "Unknown"
+        
+        # 2. 获取技术面 (DAILY)
         df, _ = ts.get_daily_adjusted(symbol=symbol)
-        df = df.head(60)
         
+        # 检查点 3: 技术面数据是否存在
+        if df.empty:
+             st.warning(f"⚠️ {symbol}: API 返回了空的价格数据")
+             return None
+             
+        df = df.head(60)
         curr = df['5. adjusted close'].iloc[0]
         high = df['5. adjusted close'].max()
         drop = (curr - high) / high
         rsi = ta.rsi(df['5. adjusted close'], length=14).iloc[0]
         
-        # 评分逻辑
+        # 3. 评分
         score = 0
         if drop < -0.15: score += 40
         if rsi < 45: score += 30
@@ -134,15 +153,22 @@ def verify_stock_data(symbol, api_key):
         return {
             "代码": symbol,
             "行业": sector,
-            "当前价": round(curr, 2),
+            "现价": round(curr, 2),
             "动态PE": pe,
-            "距高点跌幅": f"{round(drop*100, 1)}%",
-            "RSI (14)": round(rsi, 1),
-            "AI 推荐分": score,
-            "状态": "✅ 重点关注" if score >= 70 else "👀 观察"
+            "跌幅": f"{round(drop*100, 1)}%",
+            "RSI": round(rsi, 1),
+            "AI评分": score,
+            "建议": "✅ 关注" if score >= 70 else "👀 观察"
         }
+
+    except ValueError as ve:
+        # 这种通常是 API 频率超限 (Rate Limit) 返回了文本而不是 JSON
+        st.error(f"❌ {symbol} 频率超限或数据解析失败: {ve}")
+        # 如果是频率限制，通常需要在这里强制停止或长休眠
+        return None
     except Exception as e:
-        # st.error(f"{symbol} 数据获取失败: {e}") # 调试用，生产环境可注释
+        # 打印其他所有错误
+        st.error(f"❌ {symbol} 未知错误: {e}")
         return None
 
 # --- 5. 主界面逻辑 (修复重点) ---
