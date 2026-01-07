@@ -54,11 +54,10 @@ def load_key_securely(key_name, display_name):
         )
 
 # 调用函数加载 Key
-av_api_key = load_key_securely("ALPHA_VANTAGE_KEY", "Alpha Vantage Key")
 llm_api_key = load_key_securely("GOOGLE_API_KEY", "Google Gemini Key")
 
 # 检查最终状态
-if not av_api_key or not llm_api_key:
+if not llm_api_key:
     st.sidebar.warning("⚠️ 缺少必要的 API Key，程序无法运行。")
     st.stop() # 强制停止后续代码运行，防止报错
 
