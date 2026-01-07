@@ -38,9 +38,6 @@ llm_api_key = load_key_securely("GOOGLE_API_KEY", "Google Gemini Key")
 default_date = datetime.now().strftime("%Y年%m月%d日")
 analysis_date = st.sidebar.text_input("分析时间锚点", value=default_date)
 
-# 3.3 扫描数量控制
-scan_limit = st.sidebar.slider("AI 推荐数量", min_value=5, max_value=20, value=8)
-
 st.sidebar.markdown("---")
 st.sidebar.info("💡 **提示**: Yahoo Finance 接口完全免费且无硬性限制，但请保持网络通畅（访问国际互联网）。")
 
@@ -50,7 +47,7 @@ Role: 资深美股量化分析师。
 Context: 假设现在的市场时间是 **{analysis_date}**。
 Task: 请基于这个时间点的宏观环境，筛选出 5-8只标普500成分股。
 Criteria:
-1. 错杀型 (Deep Value): 股价较{analysis_date}前的高点下跌超过15%，但基本面（营收/EPS）依然健康。
+1. 错杀型 (Deep Value): 股价较{analysis_date}前的高点下跌超过20%，但基本面（营收/EPS）依然健康。
 2. 资金流 (Money Flow): 近期成交量有异动，或处于行业轮动（Sector Rotation）的受益区。
 Output Format: 仅输出股票代码(Ticker)，用英文逗号隔开，不要包含任何解释或Markdown格式。
 """
@@ -153,6 +150,9 @@ def verify_stock_yahoo(symbol):
             score += 10
             reasons.append("放量")
 
+        if drop_pct > -0.05 and rsi > 50:
+            return None 
+            
         return {
             "代码": clean_symbol,
             "名称": name,
