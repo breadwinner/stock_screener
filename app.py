@@ -6,31 +6,70 @@ from alpha_vantage.timeseries import TimeSeries
 import pandas_ta as ta
 import time
 from datetime import datetime
+import os
+# 如果在本地运行且使用 .env 文件，需要安装 python-dotenv
+# pip install python-dotenv
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
-# --- 页面配置 ---
+# --- 1. 基础配置与 API Key 管理 ---
 st.set_page_config(page_title="AI 动态美股筛选器", layout="wide")
-st.title("⏱️ AI 动态美股筛选器 (自动同步当前时间)")
+st.title("⏱️ AI 动态美股筛选器 (Secrets/Env 集成版)")
 
-# --- 1. 动态时间逻辑 (核心修改点) ---
-# 获取系统当前日期，格式如：2025年05月
+def get_api_key(key_name):
+    """
+    获取 API Key 的通用函数
+    优先级: 1. Streamlit Secrets (云端/toml) -> 2. 环境变量 (.env) -> 3. 空
+    """
+    if key_name in st.secrets:
+        return st.secrets[key_name]
+    elif os.getenv(key_name):
+        return os.getenv(key_name)
+    else:
+        return ""
+
+# --- 2. 侧边栏配置 ---
+st.sidebar.header("⚙️ 参数与密钥")
+
+# 2.1 获取并自动填充 Key
+default_av_key = get_api_key("ALPHA_VANTAGE_KEY")
+default_llm_key = get_api_key("GOOGLE_API_KEY")
+
+av_api_key = st.sidebar.text_input(
+    "Alpha Vantage Key", 
+    value=default_av_key, 
+    type="password",
+    help="优先读取 Secrets 配置，也可在此手动覆盖"
+)
+
+llm_api_key = st.sidebar.text_input(
+    "Google Gemini Key", 
+    value=default_llm_key, 
+    type="password",
+    help="优先读取 Secrets 配置，也可在此手动覆盖"
+)
+
+# 检查状态
+if not av_api_key or not llm_api_key:
+    st.sidebar.warning("⚠️ 未检测到完整 Key，请配置 .streamlit/secrets.toml 或手动输入。")
+else:
+    st.sidebar.success("✅ API Key 已就绪")
+
+st.sidebar.markdown("---")
+
+# 2.2 动态时间设置
 system_date = datetime.now().strftime("%Y年%m月%d日")
-
-st.sidebar.header("⚙️ 参数设置")
-# 默认使用系统时间，但允许用户手动修改以进行回测或模拟
 analysis_date = st.sidebar.text_input("分析时间锚点", value=system_date, help="AI 将基于此时间点分析市场环境")
+st.sidebar.caption(f"系统当前日期: {system_date}")
 
-st.sidebar.caption(f"系统检测当前时间: {system_date}")
-
-# --- API 配置 ---
-av_api_key = st.sidebar.text_input("Alpha Vantage Key", type="password")
-llm_api_key = st.sidebar.text_input("Gemini/OpenAI Key", type="password")
-
-# --- 2. 动态 Prompt 构建 ---
-# 使用 f-string 将 analysis_date 动态嵌入
+# --- 3. 核心逻辑: 动态 Prompt ---
 STRATEGY_PROMPT = f"""
 Role: 资深美股量化分析师。
 Context: 假设现在的市场时间是 **{analysis_date}**。
-Task: 请基于这个时间点的宏观环境，筛选出 5-8 只纳斯达克, 道琼斯或标普500成分股。
+Task: 请基于这个时间点的宏观环境，筛选出 5-8 只纳斯达克，道琼斯或标普500成分股。
 Criteria:
 1. 错杀型 (Deep Value): 股价较{analysis_date}前的高点下跌超过15%，但基本面（营收/EPS）依然健康。
 2. 资金流 (Money Flow): 近期成交量有异动，或处于行业轮动（Sector Rotation）的受益区。
@@ -39,7 +78,7 @@ Output Format: 仅输出股票代码(Ticker)，用英文逗号隔开，不要包
 Example: AAPL, MSFT, TTD, BAX
 """
 
-# --- 3. 核心功能函数 ---
+# --- 4. 功能函数 ---
 
 def get_ai_picks(api_key, prompt):
     """调用 LLM 生成股票名单"""
@@ -47,14 +86,14 @@ def get_ai_picks(api_key, prompt):
         if not api_key:
             return []
         
-        # 配置 Google Gemini (或根据需要改为 OpenAI)
+        # 配置 Google Gemini
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-3.0-flash')
+        model = genai.GenerativeModel('gemini-pro')
         
         with st.spinner(f'AI 正在基于 [{analysis_date}] 的市场环境进行思考...'):
             response = model.generate_content(prompt)
             text = response.text
-            # 清洗数据：移除换行、空格，只保留代码
+            # 清洗数据
             tickers = [t.strip().upper() for t in text.replace('\n', '').replace('`', '').split(',') if t.strip()]
             return tickers
     except Exception as e:
@@ -67,27 +106,27 @@ def verify_stock_data(symbol, api_key):
         fd = FundamentalData(key=api_key, output_format='pandas')
         ts = TimeSeries(key=api_key, output_format='pandas')
         
-        # 获取基本面 (PE)
+        # 基本面
         overview, _ = fd.get_company_overview(symbol=symbol)
         if overview.empty: return None
         
-        pe = float(overview['ForwardPE'].iloc[0]) if 'ForwardPE' in overview.columns else 0
+        pe = float(overview['ForwardPE'].iloc[0]) if 'ForwardPE' in overview.columns and overview['ForwardPE'].iloc[0] != 'None' else 0
         sector = overview['Sector'].iloc[0]
         
-        # 获取技术面 (RSI, 跌幅)
+        # 技术面 (取最近60天)
         df, _ = ts.get_daily_adjusted(symbol=symbol)
-        df = df.head(60) # 取最近60个交易日
+        df = df.head(60)
         
         curr = df['5. adjusted close'].iloc[0]
         high = df['5. adjusted close'].max()
         drop = (curr - high) / high
         rsi = ta.rsi(df['5. adjusted close'], length=14).iloc[0]
         
-        # 简单的评分逻辑
+        # 评分逻辑
         score = 0
-        if drop < -0.15: score += 40      # 跌幅够深
-        if rsi < 45: score += 30          # 处于超卖区
-        if 0 < pe < 35: score += 30       # 估值合理
+        if drop < -0.15: score += 40
+        if rsi < 45: score += 30
+        if 0 < pe < 35: score += 30
         
         return {
             "代码": symbol,
@@ -97,12 +136,13 @@ def verify_stock_data(symbol, api_key):
             "距高点跌幅": f"{round(drop*100, 1)}%",
             "RSI (14)": round(rsi, 1),
             "AI 推荐分": score,
-            "状态": "✅ 值得关注" if score >= 70 else "⚠️ 需谨慎"
+            "状态": "✅ 重点关注" if score >= 70 else "👀 观察"
         }
-    except Exception:
+    except Exception as e:
+        # st.error(f"{symbol} 数据获取失败: {e}") # 调试用，生产环境可注释
         return None
 
-# --- 4. 主界面逻辑 ---
+# --- 5. 主界面布局 ---
 
 col1, col2 = st.columns([1, 1.5])
 
@@ -113,7 +153,7 @@ with col1:
     
     if st.button("开始 AI 筛选"):
         if not llm_api_key:
-            st.warning("请先在左侧输入 LLM API Key")
+            st.error("请先配置 Google Gemini Key")
         else:
             picks = get_ai_picks(llm_api_key, STRATEGY_PROMPT)
             if picks:
@@ -128,17 +168,32 @@ with col2:
         
         if st.button("运行 Alpha Vantage 验证"):
             if not av_api_key:
-                st.error("请输入 Alpha Vantage API Key")
+                st.error("请先配置 Alpha Vantage Key")
             else:
                 results = []
                 my_bar = st.progress(0)
+                status_text = st.empty()
                 
                 for i, ticker in enumerate(target_tickers):
+                    status_text.text(f"正在分析: {ticker} ...")
                     data = verify_stock_data(ticker, av_api_key)
                     if data: results.append(data)
-                    time.sleep(12) # 免费 Key 频率限制
+                    
+                    # 免费 Key 限制 (每分钟5次)，如果列表长，需要加延时
+                    if len(target_tickers) > 5:
+                        time.sleep(12) 
+                    else:
+                        time.sleep(1)
+                        
                     my_bar.progress((i+1)/len(target_tickers))
+                
+                status_text.text("分析完成！")
                 
                 if results:
                     df = pd.DataFrame(results).sort_values(by="AI 推荐分", ascending=False)
-                    st.dataframe(df.style.highlight_max(axis=0, subset=['AI 推荐分'], color='#d4edda'))
+                    
+                    # 样式设置
+                    def highlight_rows(row):
+                        return ['background-color: #d4edda' if row['状态'] == '✅ 重点关注' else '' for _ in row]
+                    
+                    st.dataframe(df.style.apply(highlight_rows, axis=1))
