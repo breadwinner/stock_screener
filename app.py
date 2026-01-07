@@ -91,7 +91,7 @@ def get_ai_picks(api_key, prompt):
         
         # 配置 Google Gemini
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-3.0-flash')
+        model = genai.GenerativeModel('gemini-2.5-flash')
         
         with st.spinner(f'AI 正在基于 [{analysis_date}] 的市场环境进行思考...'):
             response = model.generate_content(prompt)
