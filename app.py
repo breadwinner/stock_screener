@@ -145,58 +145,61 @@ def verify_stock_data(symbol, api_key):
         # st.error(f"{symbol} 数据获取失败: {e}") # 调试用，生产环境可注释
         return None
 
-# --- 5. 主界面布局 ---
+# --- 5. 主界面逻辑 (修复重点) ---
 
-col1, col2 = st.columns([1, 1.5])
+col1, col2 = st.columns([1, 2])
 
 with col1:
-    st.subheader("1️⃣ AI 策略生成")
-    st.info(f"当前 Prompt 时间设定: **{analysis_date}**")
-    st.code(STRATEGY_PROMPT, language='markdown')
+    st.subheader("1️⃣ AI 策略")
+    st.info(f"时间: {analysis_date}")
     
+    # 按钮 1: AI 筛选
     if st.button("开始 AI 筛选"):
-        if not llm_api_key:
-            st.error("请先配置 Google Gemini Key")
-        else:
-            picks = get_ai_picks(llm_api_key, STRATEGY_PROMPT)
-            if picks:
-                st.session_state['picks'] = picks
-                st.success(f"AI 筛选出 {len(picks)} 只标的: {', '.join(picks)}")
+        picks = get_ai_picks(llm_api_key, STRATEGY_PROMPT)
+        if picks:
+            # 【关键修复】存入 Session State
+            st.session_state['ai_picks'] = picks
+            st.success(f"已生成: {', '.join(picks)}")
 
 with col2:
-    st.subheader("2️⃣ 量化数据验证")
-    if 'picks' in st.session_state:
-        target_tickers = st.session_state['picks']
-        st.write(f"待验证列表: {target_tickers}")
+    st.subheader("2️⃣ 量化验证结果")
+    
+    # 检查是否有 AI 筛选结果
+    if 'ai_picks' in st.session_state:
+        picks = st.session_state['ai_picks']
+        st.write(f"待验证: {picks}")
         
+        # 按钮 2: 运行数据验证
         if st.button("运行 Alpha Vantage 验证"):
-            if not av_api_key:
-                st.error("请先配置 Alpha Vantage Key")
-            else:
-                results = []
-                my_bar = st.progress(0)
-                status_text = st.empty()
-                
-                for i, ticker in enumerate(target_tickers):
-                    status_text.text(f"正在分析: {ticker} ...")
-                    data = verify_stock_data(ticker, av_api_key)
-                    if data: results.append(data)
-                    
-                    # 免费 Key 限制 (每分钟5次)，如果列表长，需要加延时
-                    if len(target_tickers) > 5:
-                        time.sleep(12) 
-                    else:
-                        time.sleep(1)
-                        
-                    my_bar.progress((i+1)/len(target_tickers))
-                
-                status_text.text("分析完成！")
-                
-                if results:
-                    df = pd.DataFrame(results).sort_values(by="AI 推荐分", ascending=False)
-                    
-                    # 样式设置
-                    def highlight_rows(row):
-                        return ['background-color: #d4edda' if row['状态'] == '✅ 重点关注' else '' for _ in row]
-                    
-                    st.dataframe(df.style.apply(highlight_rows, axis=1))
+            results = []
+            progress = st.progress(0)
+            
+            for i, ticker in enumerate(picks):
+                data = verify_stock_data(ticker, av_api_key)
+                if data: results.append(data)
+                # 避免 API 速率限制 (免费版)
+                time.sleep(12) if len(picks) > 2 else time.sleep(1)
+                progress.progress((i+1)/len(picks))
+            
+            if results:
+                df = pd.DataFrame(results).sort_values(by="AI评分", ascending=False)
+                # 【关键修复】将最终结果存入 Session State，而不是只在按钮内部显示
+                st.session_state['final_df'] = df
+        
+        # --- 显示区域 (在按钮外部渲染) ---
+        # 只要 session_state 里有结果，就一直显示表格
+        if 'final_df' in st.session_state:
+            final_df = st.session_state['final_df']
+            
+            # 样式高亮
+            def highlight(row):
+                return ['background-color: #d4edda' if row['建议'] == '✅ 关注' else '' for _ in row]
+            
+            st.dataframe(final_df.style.apply(highlight, axis=1), use_container_width=True)
+            
+            # 添加下载按钮
+            csv = final_df.to_csv(index=False).encode('utf-8')
+            st.download_button("📥 下载 CSV", csv, "market_analysis.csv", "text/csv")
+            
+    else:
+        st.info("请先在左侧运行 AI 筛选")
