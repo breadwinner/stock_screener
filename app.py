@@ -5,6 +5,7 @@ from alpha_vantage.fundamentaldata import FundamentalData
 from alpha_vantage.timeseries import TimeSeries
 import pandas_ta as ta
 import time
+import yfinance as yf
 from datetime import datetime
 import os
 # 如果在本地运行且使用 .env 文件，需要安装 python-dotenv
@@ -103,72 +104,67 @@ def get_ai_picks(api_key, prompt):
         st.error(f"AI 调用错误: {str(e)}")
         return []
 
-# --- 替换原有的 verify_stock_data 函数 ---
-def verify_stock_data(symbol, api_key):
+# --- 替换原有的 verify_stock_data 函数 (yfinance 版) ---
+def verify_stock_data(symbol, api_key=None): 
+    # 注意：yfinance 不需要 api_key，这里保留参数是为了兼容之前的调用格式
     try:
-        fd = FundamentalData(key=api_key, output_format='pandas')
-        ts = TimeSeries(key=api_key, output_format='pandas')
+        # 1. 初始化 Ticker
+        ticker = yf.Ticker(symbol)
         
-        # 调试信息：告诉用户正在查哪个
-        # st.write(f"正在尝试获取 {symbol} 的数据...") 
+        # 2. 获取基本面数据 (Info)
+        # yfinance 的 info 有时请求较慢，但这步是必须的
+        info = ticker.info
         
-        # 1. 获取基本面 (OVERVIEW)
-        overview, _ = fd.get_company_overview(symbol=symbol)
+        # 提取关键指标
+        current_price = info.get('currentPrice', 0.0)
+        # 如果没有 currentPrice，尝试获取 previousClose
+        if current_price == 0:
+            current_price = info.get('previousClose', 0.0)
+
+        pe = info.get('forwardPE', 0.0)
+        # 如果 Forward PE 为 None (比如亏损股), 设为 0
+        if pe is None: pe = 0.0
+            
+        sector = info.get('sector', 'Unknown')
         
-        # 检查点 1: API 是否返回了空数据？
-        if overview.empty:
-            st.warning(f"⚠️ {symbol}: API 返回了空的基本面数据 (Overview is empty)")
+        # 3. 获取技术面数据 (History)
+        # 获取过去 3 个月数据用于计算 RSI 和 回撤
+        hist = ticker.history(period="3mo")
+        
+        if hist.empty:
             return None
             
-        # 检查点 2: 打印一下列名，看看有没有 ForwardPE
-        # st.write(overview.columns) 
-
-        # 安全获取数据 (使用 .get 避免报错)
-        # 注意: Alpha Vantage 有时返回 'None' 字符串，有时返回 float
-        pe_raw = overview['ForwardPE'].iloc[0]
-        pe = float(pe_raw) if pe_raw and pe_raw != 'None' else 0.0
+        # 计算技术指标
+        # 52周高点 (用3个月高点近似，或者用 info['fiftyTwoWeekHigh'])
+        high_52 = info.get('fiftyTwoWeekHigh', hist['Close'].max())
+        drop_pct = (current_price - high_52) / high_52
         
-        sector = overview['Sector'].iloc[0] if 'Sector' in overview.columns else "Unknown"
+        # 计算 RSI
+        rsi_series = ta.rsi(hist['Close'], length=14)
+        if rsi_series is None or rsi_series.empty:
+            rsi = 50.0 # 默认值
+        else:
+            rsi = rsi_series.iloc[-1]
         
-        # 2. 获取技术面 (DAILY)
-        df, _ = ts.get_daily_adjusted(symbol=symbol)
-        
-        # 检查点 3: 技术面数据是否存在
-        if df.empty:
-             st.warning(f"⚠️ {symbol}: API 返回了空的价格数据")
-             return None
-             
-        df = df.head(60)
-        curr = df['5. adjusted close'].iloc[0]
-        high = df['5. adjusted close'].max()
-        drop = (curr - high) / high
-        rsi = ta.rsi(df['5. adjusted close'], length=14).iloc[0]
-        
-        # 3. 评分
+        # 4. 评分逻辑
         score = 0
-        if drop < -0.15: score += 40
-        if rsi < 45: score += 30
-        if 0 < pe < 35: score += 30
+        if drop_pct < -0.15: score += 40      # 跌幅深
+        if rsi < 45: score += 30              # 超卖
+        if 0 < pe < 35: score += 30           # 估值合理 (0意味着亏损，排除)
         
         return {
             "代码": symbol,
             "行业": sector,
-            "现价": round(curr, 2),
-            "动态PE": pe,
-            "跌幅": f"{round(drop*100, 1)}%",
+            "现价": round(current_price, 2),
+            "动态PE": round(pe, 2),
+            "跌幅": f"{round(drop_pct*100, 1)}%",
             "RSI": round(rsi, 1),
             "AI评分": score,
             "建议": "✅ 关注" if score >= 70 else "👀 观察"
         }
 
-    except ValueError as ve:
-        # 这种通常是 API 频率超限 (Rate Limit) 返回了文本而不是 JSON
-        st.error(f"❌ {symbol} 频率超限或数据解析失败: {ve}")
-        # 如果是频率限制，通常需要在这里强制停止或长休眠
-        return None
     except Exception as e:
-        # 打印其他所有错误
-        st.error(f"❌ {symbol} 未知错误: {e}")
+        # st.error(f"{symbol} 分析失败: {e}") # 调试时可打开
         return None
 
 # --- 5. 主界面逻辑 (修复重点) ---
@@ -196,20 +192,21 @@ with col2:
         st.write(f"待验证: {picks}")
         
         # 按钮 2: 运行数据验证
-        if st.button("运行 Alpha Vantage 验证"):
+        if st.button("运行量化验证 (Yahoo Finance)"): # 按钮名字改一下
             results = []
             progress = st.progress(0)
             
             for i, ticker in enumerate(picks):
-                data = verify_stock_data(ticker, av_api_key)
+                # 注意：这里不需要传 av_api_key 了，传 None 即可
+                data = verify_stock_data(ticker, None) 
                 if data: results.append(data)
-                # 避免 API 速率限制 (免费版)
-                time.sleep(12) if len(picks) > 2 else time.sleep(1)
+                
+                # yfinance 很快，不需要睡 12秒，睡 0.1秒 给 UI 刷新留点时间即可
+                time.sleep(0.1) 
                 progress.progress((i+1)/len(picks))
             
             if results:
                 df = pd.DataFrame(results).sort_values(by="AI评分", ascending=False)
-                # 【关键修复】将最终结果存入 Session State，而不是只在按钮内部显示
                 st.session_state['final_df'] = df
         
         # --- 显示区域 (在按钮外部渲染) ---
