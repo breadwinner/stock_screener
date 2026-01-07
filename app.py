@@ -46,14 +46,20 @@ st.sidebar.info("💡 **提示**: Yahoo Finance 接口完全免费且无硬性�
 
 # --- 4. AI 策略定义 ---
 STRATEGY_PROMPT = f"""
-Role: 资深美股量化分析师。
-Context: 假设现在的市场时间是 **{analysis_date}**。
-Task: 筛选 {scan_limit} 只纳斯达克,道琼斯或标普500成分股。
-Criteria:
-1. 错杀型: 股价较{analysis_date}前高点跌幅>15%，基本面健康。
-2. 资金流: 近期RSI低位或成交量异动。
-Output Format: 仅输出股票代码，用英文逗号隔开 (e.g. AAPL, MSFT)。
-"""
+Role: 极其严格的华尔街基本面分析师。
+Context: 市场时间为 **{analysis_date}**。
+Task: 筛选 {scan_limit} 只**非热门、由于恐慌被错杀**的标普500成分股。
+
+⚠️ **Negative Constraints (绝对禁止项):**
+1. **禁止推荐 Magnificent 7 (七巨头)**: 严禁出现 NVDA, TSLA, AAPL, MSFT, AMZN, GOOGL, META。
+2. **禁止推荐处于历史高位的股票**。
+
+✅ **Selection Criteria (必须满足):**
+1. **Sector Rotation**: 重点关注 **Healthcare (医疗), Utilities (公用事业), Consumer Staples (必需消费), Industrials (工业)**。
+2. **Deep Value**: 必须是最近一个月遭遇**显著抛售 (Sell-off)** 的公司。
+3. **Reasoning**: 寻找因为“加息担忧”、“单一临床失败”或“短期供应链问题”导致暴跌的绩优股。
+
+Output Format: 仅输出股票代码(Ticker)，用英文逗号隔开。例如: BAX, PFE, NEE, EL, MMM
 
 # --- 5. 核心功能函数 ---
 
