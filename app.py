@@ -103,58 +103,74 @@ def get_ai_picks(api_key, prompt):
         st.error(f"AI 调用错误: {str(e)}")
         return []
 
-# --- 替换原有的 verify_stock_data 函数 (yfinance 版) ---
-def verify_stock_data(symbol, api_key=None): 
-    # 注意：yfinance 不需要 api_key，这里保留参数是为了兼容之前的调用格式
-    try:
-        # 1. 初始化 Ticker
-        ticker = yf.Ticker(symbol)
-        
-        # 2. 获取基本面数据 (Info)
-        # yfinance 的 info 有时请求较慢，但这步是必须的
-        info = ticker.info
-        
-        # 提取关键指标
-        current_price = info.get('currentPrice', 0.0)
-        # 如果没有 currentPrice，尝试获取 previousClose
-        if current_price == 0:
-            current_price = info.get('previousClose', 0.0)
+# 记得在文件最开头确认导入了库
+import yfinance as yf
 
-        pe = info.get('forwardPE', 0.0)
-        # 如果 Forward PE 为 None (比如亏损股), 设为 0
+def verify_stock_data(symbol, api_key=None):
+    # 1. 清洗代码格式 (Yahoo Finance 对格式很敏感)
+    # 移除空格，移除可能的 'NASDAQ:' 前缀
+    clean_symbol = symbol.strip().upper().replace('NASDAQ:', '').replace('NYSE:', '')
+    # 修正特殊股票: 例如 BRK.B -> BRK-B (Yahoo 专用格式)
+    clean_symbol = clean_symbol.replace('.', '-')
+    
+    try:
+        # st.write(f"正在分析: {clean_symbol} ...") # 调试用
+        
+        ticker = yf.Ticker(clean_symbol)
+        
+        # 2. 获取数据 (尝试多种方式以防 Yahoo 抽风)
+        try:
+            # 方式 A: 尝试获取详细信息 (可能会慢)
+            info = ticker.info
+        except Exception:
+            # 如果 info 失败，给一个空字典，后续用容错逻辑
+            info = {}
+            # st.warning(f"{clean_symbol} info获取失败，尝试降级模式")
+
+        # 3. 提取核心指标 (带容错)
+        # 优先用 fast_info (更快更稳)，拿不到再用 info
+        try:
+            curr_price = ticker.fast_info['last_price']
+        except:
+            curr_price = info.get('currentPrice', info.get('regularMarketPrice', 0.0))
+
+        # 如果连价格都拿不到，说明代码可能是错的，直接返回 None
+        if curr_price == 0:
+            st.error(f"❌ 无法获取 {clean_symbol} 的价格，可能是代码错误。")
+            return None
+
+        # 获取 PE (可能为空，设为 0)
+        pe = info.get('forwardPE', info.get('trailingPE', 0.0))
         if pe is None: pe = 0.0
-            
+        
         sector = info.get('sector', 'Unknown')
-        
-        # 3. 获取技术面数据 (History)
-        # 获取过去 3 个月数据用于计算 RSI 和 回撤
+
+        # 4. 技术面分析 (必须有 K 线)
         hist = ticker.history(period="3mo")
-        
         if hist.empty:
+            st.warning(f"⚠️ {clean_symbol} 没有历史数据")
             return None
             
-        # 计算技术指标
-        # 52周高点 (用3个月高点近似，或者用 info['fiftyTwoWeekHigh'])
         high_52 = info.get('fiftyTwoWeekHigh', hist['Close'].max())
-        drop_pct = (current_price - high_52) / high_52
+        # 防止除以 0
+        if high_52 == 0: high_52 = curr_price 
+        
+        drop_pct = (curr_price - high_52) / high_52
         
         # 计算 RSI
         rsi_series = ta.rsi(hist['Close'], length=14)
-        if rsi_series is None or rsi_series.empty:
-            rsi = 50.0 # 默认值
-        else:
-            rsi = rsi_series.iloc[-1]
+        rsi = rsi_series.iloc[-1] if not rsi_series.empty else 50.0
         
-        # 4. 评分逻辑
+        # 5. 评分逻辑
         score = 0
-        if drop_pct < -0.15: score += 40      # 跌幅深
-        if rsi < 45: score += 30              # 超卖
-        if 0 < pe < 35: score += 30           # 估值合理 (0意味着亏损，排除)
+        if drop_pct < -0.15: score += 40
+        if rsi < 45: score += 30
+        if 0 < pe < 35: score += 30  # 亏损股(PE=0)不给分
         
         return {
-            "代码": symbol,
+            "代码": clean_symbol,
             "行业": sector,
-            "现价": round(current_price, 2),
+            "现价": round(curr_price, 2),
             "动态PE": round(pe, 2),
             "跌幅": f"{round(drop_pct*100, 1)}%",
             "RSI": round(rsi, 1),
@@ -163,7 +179,7 @@ def verify_stock_data(symbol, api_key=None):
         }
 
     except Exception as e:
-        # st.error(f"{symbol} 分析失败: {e}") # 调试时可打开
+        st.error(f"❌ 分析 {symbol} 时发生未知错误: {e}")
         return None
 
 # --- 5. 主界面逻辑 (修复重点) ---
@@ -185,28 +201,37 @@ with col1:
 with col2:
     st.subheader("2️⃣ 量化验证结果")
     
-    # 检查是否有 AI 筛选结果
-    if 'ai_picks' in st.session_state:
-        picks = st.session_state['ai_picks']
-        st.write(f"待验证: {picks}")
+    if 'picks' in st.session_state: # 确保这里读取的是 session_state 里的 key
+        target_tickers = st.session_state['picks']
+        st.write(f"待验证列表: {target_tickers}") # <--- 看这里显示了什么？
         
-        # 按钮 2: 运行数据验证
-        if st.button("运行量化验证 (Yahoo Finance)"): # 按钮名字改一下
+        if st.button("运行 Yahoo Finance 验证"):
             results = []
-            progress = st.progress(0)
+            my_bar = st.progress(0)
             
-            for i, ticker in enumerate(picks):
-                # 注意：这里不需要传 av_api_key 了，传 None 即可
-                data = verify_stock_data(ticker, None) 
-                if data: results.append(data)
+            for i, ticker in enumerate(target_tickers):
+                # 传入 None 因为 yfinance 不需要 Key
+                data = verify_stock_data(ticker, None)
+                if data: 
+                    results.append(data)
+                else:
+                    st.warning(f"跳过 {ticker} (数据获取失败)")
                 
-                # yfinance 很快，不需要睡 12秒，睡 0.1秒 给 UI 刷新留点时间即可
-                time.sleep(0.1) 
-                progress.progress((i+1)/len(picks))
+                time.sleep(0.1) # 稍微给一点点间隔
+                my_bar.progress((i+1)/len(target_tickers))
             
             if results:
+                st.success(f"成功获取 {len(results)} 只股票数据")
                 df = pd.DataFrame(results).sort_values(by="AI评分", ascending=False)
-                st.session_state['final_df'] = df
+                
+                # 存入 Session State 防止刷新消失
+                st.session_state['final_result'] = df
+            else:
+                st.error("⚠️ 所有股票均验证失败，请检查网络或代码格式。")
+
+    # --- 显示逻辑 (放在 Button 外面) ---
+    if 'final_result' in st.session_state:
+        st.dataframe(st.session_state['final_result'])
         
         # --- 显示区域 (在按钮外部渲染) ---
         # 只要 session_state 里有结果，就一直显示表格
