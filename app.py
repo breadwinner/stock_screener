@@ -62,7 +62,7 @@ def get_ai_picks(api_key, prompt):
             return []
         
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-2.5-flash-lite')
+        model = genai.GenerativeModel('gemini-3-flash')
         
         with st.spinner(f'🧠 AI 正在基于 [{analysis_date}] 的市场环境进行深度扫描...'):
             response = model.generate_content(prompt)
