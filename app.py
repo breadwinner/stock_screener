@@ -48,7 +48,6 @@ Context: 假设现在的市场时间是 **{analysis_date}**。
 Task: 请基于这个时间点的宏观环境，筛选出 5-8只标普500成分股。
 Criteria:
 1. 错杀型 (Deep Value): 股价较{analysis_date}前的高点下跌超过15%，但基本面（营收/EPS）依然健康。
-2. 资金流 (Money Flow): 近期成交量有异动，或处于行业轮动（Sector Rotation）的受益区。
 Output Format: 仅输出股票代码(Ticker)，用英文逗号隔开，不要包含任何解释或Markdown格式。
 """
 
