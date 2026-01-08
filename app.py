@@ -197,18 +197,29 @@ with col1:
         st.button(f"⏳ 冷却中... 请等待 {int(time_remaining)} 秒", disabled=True)
     # 按钮 A: 生成名单
     else:
+        # 非冷却：显示正常按钮
         if st.button("开始 AI 选股", type="primary"):
+            # 1. 记录当前时间，立即触发冷却
+            st.session_state['last_run_time'] = current_time
+            
+            # 2. 执行业务逻辑
             picks = get_ai_picks(llm_api_key, STRATEGY_PROMPT)
+            
             if picks:
-                st.session_state['ai_picks'] = picks # 存入缓存
+                st.session_state['ai_picks'] = picks
                 st.success(f"AI 已锁定 {len(picks)} 只目标!")
+                # 3. 强制刷新页面，让按钮立刻变回禁用状态
+                st.rerun()
             else:
+                # 如果失败，重置时间，允许用户立即重试（可选）
+                st.session_state['last_run_time'] = 0 
                 st.warning("AI 未返回结果，请检查 Key 或网络。")
 
     # 显示当前的 AI 名单
     if 'ai_picks' in st.session_state:
         st.write("📋 **目标清单:**")
-        st.code(", ".join(st.session_state['ai_picks']))
+        # 使用 markdown 列表显示更清晰
+        st.markdown("\n".join([f"- **{t}**" for t in st.session_state['ai_picks']]))
 
 # === 右侧: 量化验证结果 ===
 with col2:
