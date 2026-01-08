@@ -180,7 +180,7 @@ with col1:
     st.info(f"时间锚点: {analysis_date}")
     
     # --- 冷却时间逻辑开始 ---
-    COOLDOWN_SEC = 30  # 设置冷却时间 30 秒
+    COOLDOWN_SEC = 45  # 设置冷却时间 45 秒
     
     # 初始化上次运行时间
     if 'last_run_time' not in st.session_state:
