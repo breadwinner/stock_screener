@@ -179,14 +179,31 @@ with col1:
     st.subheader("1️⃣ 策略生成")
     st.info(f"时间锚点: {analysis_date}")
     
+    # --- 冷却时间逻辑开始 ---
+    COOLDOWN_SEC = 30  # 设置冷却时间 30 秒
+    
+    # 初始化上次运行时间
+    if 'last_run_time' not in st.session_state:
+        st.session_state['last_run_time'] = 0
+    
+    # 计算距离上次运行过了多久
+    current_time = time.time()
+    time_since_last_run = current_time - st.session_state['last_run_time']
+    time_remaining = COOLDOWN_SEC - time_since_last_run
+    
+    # 判断是否在冷却期
+    if time_remaining > 0:
+        # 冷却中：显示灰色不可点按钮，并显示倒计时
+        st.button(f"⏳ 冷却中... 请等待 {int(time_remaining)} 秒", disabled=True)
     # 按钮 A: 生成名单
-    if st.button("开始 AI 选股", type="primary"):
-        picks = get_ai_picks(llm_api_key, STRATEGY_PROMPT)
-        if picks:
-            st.session_state['ai_picks'] = picks # 存入缓存
-            st.success(f"AI 已锁定 {len(picks)} 只目标!")
-        else:
-            st.warning("AI 未返回结果，请检查 Key 或网络。")
+    else:
+        if st.button("开始 AI 选股", type="primary"):
+            picks = get_ai_picks(llm_api_key, STRATEGY_PROMPT)
+            if picks:
+                st.session_state['ai_picks'] = picks # 存入缓存
+                st.success(f"AI 已锁定 {len(picks)} 只目标!")
+            else:
+                st.warning("AI 未返回结果，请检查 Key 或网络。")
 
     # 显示当前的 AI 名单
     if 'ai_picks' in st.session_state:
